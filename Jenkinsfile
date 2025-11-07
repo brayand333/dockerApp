@@ -1,130 +1,130 @@
+// Jenkinsfile
 pipeline {
     agent any
 
+   
     triggers {
-        githubPush()  //  Déclenche le pipeline à chaque push sur la branche dev
+        githubPush()
+    }
+
+    options {
+        timeout(time: 20, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        skipDefaultCheckout(true) 
     }
 
     environment {
-        SLACK_CHANNEL = '#brayand'
-        SLACK_TOKEN = 'slack-tok'    // ID du credential Slack dans Jenkins
-        IMAGE_NAME = 'webbrayand'     // Nom de ton image Docker
-        IMAGE_TAG = v1'
+        SLACK_CHANNEL = '#jenkins'
+        SLACK_COLOR_DANGER = '#D50200'
+        SLACK_COLOR_WARNING = '#D5A100'
+        SLACK_COLOR_GOOD = '#00B309'
+        GIT_REPO_URL = 'https://github.com/brayand333/dockerApp.git'
+        GIT_CREDENTIALS_ID = 'slack-tokens'
     }
 
     stages {
-
-        stage('Clone') {
+        stage('Checkout') {
+            when {
+                expression { env.BRANCH_NAME == 'dev' }
+            }
             steps {
-                slackSend(channel: env.SLACK_CHANNEL, message: " Début du pipeline - Stage: Clone", tokenCredentialId: env.SLACK_TOKEN)
-                checkout([$class: 'GitSCM',
-                          branches: [[name: '*/dev']],
-                          userRemoteConfigs: [[url: 'https://github.com/brayand333/dockerApp.git']]])
-                sh 'echo " Code cloné depuis la branche dev"'
+                slackSend(
+                    channel: env.SLACK_CHANNEL,
+                    color: env.SLACK_COLOR_WARNING,
+                    message: "Début du stage Checkout sur branche ${env.BRANCH_NAME}"
+                )
+
+                checkout scmGit(
+                    branches: [[name: 'dev']],
+                    userRemoteConfigs: [[
+                        credentialsId: env.GIT_CREDENTIALS_ID,
+                        url: env.GIT_REPO_URL
+                    ]]
+                )
+            }
+            post {
+                success {
+                    slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_GOOD,
+                              message: "Checkout terminé avec succès !"
+                }
+                failure {
+                    slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_DANGER,
+                              message: "Checkout a échoué ! Vérifie les credentials Git."
+                }
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build') {
+            when {
+                expression { env.BRANCH_NAME == 'dev' }
+            }
             steps {
-                slackSend(channel: env.SLACK_CHANNEL, message: "⚙️ Stage: Build - Construction de l'image Docker...", tokenCredentialId: env.SLACK_TOKEN)
-                sh '''
-                    echo "==> Build de l’image Docker..."
-                    docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-                    echo "==> Vérification de l’image :"
-                    docker images | grep ${IMAGE_NAME}
-                '''
+                slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_WARNING,
+                          message: "Début du stage Build"
+
+                script {
+                    if (sh(script: 'command -v mvn', returnStatus: true) != 0) {
+                        error "Maven n'est pas installé sur cet agent !"
+                    }
+                    sh 'mvn clean package -DskipTests'
+                }
+            }
+            post {
+                success {
+                    slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_GOOD,
+                              message: "Build terminé ! Artefact généré."
+                }
+                failure {
+                    slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_DANGER,
+                              message: "Build a échoué !"
+                }
             }
         }
 
-        stage('Deploy Container') {
+        stage('Deploy') {
+            when {
+                expression { env.BRANCH_NAME == 'dev' }
+            }
             steps {
-                slackSend(channel: env.SLACK_CHANNEL, message: " Stage: Deploy - Lancement du conteneur...", tokenCredentialId: env.SLACK_TOKEN)
-                sh '''
-                    echo "==> Suppression de tout ancien conteneur..."
-                    docker stop ${IMAGE_NAME} || true
-                    docker rm ${IMAGE_NAME} || true
+                slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_WARNING,
+                          message: "Début du stage Deploy vers prod"
 
-                    echo "==> Démarrage du nouveau conteneur..."
-                    docker run -d --name ${IMAGE_NAME} -p 8080:80 ${IMAGE_NAME}:${IMAGE_TAG}
-
-                    echo "==> Conteneur déployé avec succès !"
-                    docker ps | grep ${IMAGE_NAME}
-                '''
+                script {
+                    if (sh(script: 'command -v docker', returnStatus: true) != 0) {
+                        error "Docker n'est pas installé !"
+                    }
+                    sh '''
+                        docker build -t monapp:latest .
+                        docker push registry/monapp:latest
+                    '''
+                }
+            }
+            post {
+                success {
+                    slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_GOOD,
+                              message: "Deploy terminé ! App en prod."
+                }
+                failure {
+                    slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_DANGER,
+                              message: "Deploy a échoué !"
+                }
             }
         }
     }
 
     post {
-        success {
-            slackSend(channel: env.SLACK_CHANNEL, message: " Pipeline *réussi* sur la branche *dev* ! 🚀", tokenCredentialId: env.SLACK_TOKEN)
-        }
-        failure {
-            slackSend(channel: env.SLACK_CHANNEL, message: " Pipeline *échoué* sur la branche *dev* ! Vérifie Jenkins. 🧯", tokenCredentialId: env.SLACK_TOKEN)
-        }
-    }
-}
-pipeline {
-    agent any
-
-    triggers {
-        githubPush()  //  Déclenche le pipeline à chaque push sur la branche dev
-    }
-
-    environment {
-        SLACK_CHANNEL = '#brayand'
-        SLACK_TOKEN = 'slack-tok'    // ID du credential Slack dans Jenkins
-        IMAGE_NAME = 'webbrayand'     // Nom de ton image Docker
-        IMAGE_TAG = 'v1'
-    }
-
-    stages {
-
-        stage('Clone') {
-            steps {
-                slackSend(channel: env.SLACK_CHANNEL, message: " Début du pipeline - Stage: Clone", tokenCredentialId: env.SLACK_TOKEN)
-                checkout([$class: 'GitSCM',
-                          branches: [[name: '*/dev']],
-                          userRemoteConfigs: [[url: 'https://github.com/brayand333/dockerApp.git']]])
-                sh 'echo " Code cloné depuis la branche dev"'
+        always {
+            script {
+                def color = currentBuild.result == 'SUCCESS' ? env.SLACK_COLOR_GOOD : env.SLACK_COLOR_DANGER
+                slackSend(
+                    channel: env.SLACK_CHANNEL,
+                    color: color,
+                    message: "Pipeline terminé ${env.JOB_NAME} #${env.BUILD_NUMBER}\n" +
+                             "Branche: ${env.BRANCH_NAME}\n" +
+                             "Résultat: ${currentBuild.result ?: 'UNKNOWN'}\n" +
+                             "Durée: ${currentBuild.durationString}"
+                )
             }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                slackSend(channel: env.SLACK_CHANNEL, message: "⚙️ Stage: Build - Construction de l'image Docker...", tokenCredentialId: env.SLACK_TOKEN)
-                sh '''
-                    echo "==> Build de l’image Docker..."
-                    docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-                    echo "==> Vérification de l’image :"
-                    docker images | grep ${IMAGE_NAME}
-                '''
-            }
-        }
-
-        stage('Deploy Container') {
-            steps {
-                slackSend(channel: env.SLACK_CHANNEL, message: " Stage: Deploy - Lancement du conteneur...", tokenCredentialId: env.SLACK_TOKEN)
-                sh '''
-                    echo "==> Suppression de tout ancien conteneur..."
-                    docker stop ${IMAGE_NAME} || true
-                    docker rm ${IMAGE_NAME} || true
-
-                    echo "==> Démarrage du nouveau conteneur..."
-                    docker run -d --name ${IMAGE_NAME} -p 8080:80 ${IMAGE_NAME}:${IMAGE_TAG}
-
-                    echo "==> Conteneur déployé avec succès !"
-                    docker ps | grep ${IMAGE_NAME}
-                '''
-            }
-        }
-    }
-
-    post {
-        success {
-            slackSend(channel: env.SLACK_CHANNEL, message: " Pipeline *réussi* sur la branche *dev* ! 🚀", tokenCredentialId: env.SLACK_TOKEN)
-        }
-        failure {
-            slackSend(channel: env.SLACK_CHANNEL, message: " Pipeline *échoué* sur la branche *dev* ! Vérifie Jenkins. 🧯", tokenCredentialId: env.SLACK_TOKEN)
         }
     }
 }
