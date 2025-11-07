@@ -2,7 +2,6 @@
 pipeline {
     agent any
 
-   
     triggers {
         githubPush()
     }
@@ -10,7 +9,6 @@ pipeline {
     options {
         timeout(time: 20, unit: 'MINUTES')
         buildDiscarder(logRotator(numToKeepStr: '10'))
-        skipDefaultCheckout(true) 
     }
 
     environment {
@@ -19,99 +17,91 @@ pipeline {
         SLACK_COLOR_WARNING = '#D5A100'
         SLACK_COLOR_GOOD = '#00B309'
         GIT_REPO_URL = 'https://github.com/brayand333/dockerApp.git'
-        GIT_CREDENTIALS_ID = 'slack-tokens'
+        GIT_CREDENTIALS_ID = 'git-credentials'     //  crée ce credential Git dans Jenkins
+        DOCKER_IMAGE = 'brayand333/webbrayand:v1' // ton image DockerHub
     }
 
     stages {
+
+        // ---  CLONE DU REPO ---
         stage('Checkout') {
-            when {
-                expression { env.BRANCH_NAME == 'dev' }
-            }
             steps {
-                slackSend(
-                    channel: env.SLACK_CHANNEL,
-                    color: env.SLACK_COLOR_WARNING,
-                    message: "Début du stage Checkout sur branche ${env.BRANCH_NAME}"
-                )
+                slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_WARNING,
+                          message: "🚀 Début du stage *Checkout*"
 
-                checkout scmGit(
-                    branches: [[name: 'dev']],
+                checkout([$class: 'GitSCM',
+                    branches: [[name: '*/dev']],
                     userRemoteConfigs: [[
-                        credentialsId: env.GIT_CREDENTIALS_ID,
-                        url: env.GIT_REPO_URL
+                        url: env.GIT_REPO_URL,
+                        credentialsId: env.GIT_CREDENTIALS_ID
                     ]]
-                )
+                ])
+
+                echo " Code cloné depuis la branche 'dev'"
             }
             post {
                 success {
                     slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_GOOD,
-                              message: "Checkout terminé avec succès !"
+                              message: " Checkout terminé avec succès !"
                 }
                 failure {
                     slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_DANGER,
-                              message: "Checkout a échoué ! Vérifie les credentials Git."
+                              message: " Checkout a échoué !"
                 }
             }
         }
 
-        stage('Build') {
-            when {
-                expression { env.BRANCH_NAME == 'dev' }
-            }
+        // ---  BUILD DE L’IMAGE DOCKER ---
+        stage('Build Docker Image') {
             steps {
                 slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_WARNING,
-                          message: "Début du stage Build"
+                          message: " Début du stage *Build Docker Image*"
 
                 script {
-                    if (sh(script: 'command -v mvn', returnStatus: true) != 0) {
-                        error "Maven n'est pas installé sur cet agent !"
-                    }
-                    sh 'mvn clean package -DskipTests'
+                    sh 'echo "==> Build de l’image Docker..."'
+                    sh "docker build -t ${DOCKER_IMAGE} ."
                 }
             }
             post {
                 success {
                     slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_GOOD,
-                              message: "Build terminé ! Artefact généré."
+                              message: " Build Docker terminé avec succès !"
                 }
                 failure {
                     slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_DANGER,
-                              message: "Build a échoué !"
+                              message: " Échec du build Docker !"
                 }
             }
         }
 
-        stage('Deploy') {
-            when {
-                expression { env.BRANCH_NAME == 'dev' }
-            }
+        // ---  DEPLOY DU CONTENEUR ---
+        stage('Deploy Container') {
             steps {
                 slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_WARNING,
-                          message: "Début du stage Deploy vers prod"
+                          message: " Début du stage *Déploiement du conteneur*"
 
                 script {
-                    if (sh(script: 'command -v docker', returnStatus: true) != 0) {
-                        error "Docker n'est pas installé !"
-                    }
-                    sh '''
-                        docker build -t monapp:latest .
-                        docker push registry/monapp:latest
-                    '''
+                    // Arrêter un conteneur existant s’il tourne déjà
+                    sh 'docker ps -q --filter "name=webbrayand" | grep -q . && docker stop webbrayand && docker rm webbrayand || true'
+
+                    // Lancer le conteneur
+                    sh "docker run -d --name webbrayand -p 8080:80 ${DOCKER_IMAGE}"
                 }
             }
             post {
                 success {
                     slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_GOOD,
-                              message: "Deploy terminé ! App en prod."
+                              message: " Application déployée avec succès sur le serveur !"
                 }
                 failure {
                     slackSend channel: env.SLACK_CHANNEL, color: env.SLACK_COLOR_DANGER,
-                              message: "Deploy a échoué !"
+                              message: " Échec du déploiement de l’application !"
                 }
             }
         }
     }
 
+    // ---  NOTIFICATION FINALE ---
     post {
         always {
             script {
@@ -119,10 +109,11 @@ pipeline {
                 slackSend(
                     channel: env.SLACK_CHANNEL,
                     color: color,
-                    message: "Pipeline terminé ${env.JOB_NAME} #${env.BUILD_NUMBER}\n" +
-                             "Branche: ${env.BRANCH_NAME}\n" +
-                             "Résultat: ${currentBuild.result ?: 'UNKNOWN'}\n" +
-                             "Durée: ${currentBuild.durationString}"
+                    message: """ *Pipeline terminé !*
+*Job:* ${env.JOB_NAME} #${env.BUILD_NUMBER}
+*Branche:* dev
+*Résultat:* ${currentBuild.result ?: 'UNKNOWN'}
+*Durée:* ${currentBuild.durationString}"""
                 )
             }
         }
