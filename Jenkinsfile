@@ -8,8 +8,8 @@ pipeline {
     environment {
         SLACK_CHANNEL = '#brayand'
         SLACK_TOKEN = 'slack-tok'    // ID du credential Slack dans Jenkins
-        IMAGE_NAME = 'dockerapp'     // Nom de ton image Docker
-        IMAGE_TAG = 'latest'
+        IMAGE_NAME = 'webbrayand'     // Nom de ton image Docker
+        IMAGE_TAG = v1'
     }
 
     stages {
@@ -73,8 +73,8 @@ pipeline {
     environment {
         SLACK_CHANNEL = '#brayand'
         SLACK_TOKEN = 'slack-tok'    // ID du credential Slack dans Jenkins
-        IMAGE_NAME = 'dockerapp'     // Nom de ton image Docker
-        IMAGE_TAG = 'latest'
+        IMAGE_NAME = 'webbrayand'     // Nom de ton image Docker
+        IMAGE_TAG = 'v1'
     }
 
     stages {
