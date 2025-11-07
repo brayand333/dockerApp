@@ -8,7 +8,7 @@ pipeline {
 
     environment {
         SLACK_CHANNEL = '#brayand'       // Ton canal Slack
-        SLACK_CREDENTIALS = 'slack-tokens'    // ID du credential Slack dans Jenkins
+        SLACK_CREDENTIALS = 'slack-tok'    // ID du credential Slack dans Jenkins
     }
 
     stages {
